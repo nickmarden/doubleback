@@ -1,47 +1,67 @@
+require 'active_support/version'
+require 'active_support/basic_object'
+require 'active_support/core_ext'
+
 module Doubleback
+  mattr_accessor :major_version
+  major_version = ::ActiveRecord::VERSION::MAJOR
+  mattr_accessor :minor_version
+  minor_version = ::ActiveRecord::VERSION::MINOR
 
   MULTI_VALUE_FINDER_METHODS  = [ :includes, :select, :group, :order, :joins, :where, :having, :joins ]
   SINGLE_VALUE_FINDER_METHODS = [ :limit, :offset, :lock, :distinct, :readonly, :from ]
-  AR3_REMOVE_FROM_SCOPE       = [ :includes ]
+  MAPPED_METHODS              = {
+    :belongs_to              => false,
+    :has_one                 => false,
+    :has_many                => true,
+    :has_and_belongs_to_many => true,
+  }
 
   def self.included(base)
 
     # !!!!!! EARLY RETURN !!!!!!
     # This module is a null-op for ActiveRecord 4+
-    return if ::ActiveRecord::VERSION::MAJOR > 3
+    return if Doubleback.major_version > 3
 
-    unless [2, 3].include?::ActiveRecord::VERSION::MAJOR 
-      raise "Unsupported ActiveRecord version #{::ActiveRecord::VERSION::MAJOR}"
+    unless [2, 3].include? Doubleback.major_version
+      raise "Unsupported ActiveRecord version #{Doubleback.major_version}"
     end
 
-    def base.belongs_to_with_forward_compatibility(name, scope = nil, options = {})
-      base.has_many_without_forward_compatibility(
-        *([name, Doubleback.merge_activerecord_finder_options(scope, options)].flatten.compact)
-      )
-    end
-    base.alias_method_chain :belongs_to, :forward_compatibility
+    class << base
 
-    def base.has_one_with_forward_compatibility(name, scope = nil, options = {})
-      base.has_many_without_forward_compatibility(
-        *([name, Doubleback.merge_activerecord_finder_options(scope, options)].flatten.compact)
-      )
-    end
-    base.alias_method_chain :has_one, :forward_compatibility
+      MAPPED_METHODS.each do |assoc, allows_extension|
 
-    def base.has_many_with_forward_compatibility(name, scope = nil, options = {}, &extension)
-      base.has_many_without_forward_compatibility(
-        *([name, Doubleback.merge_activerecord_finder_options(scope, options), extension].flatten.compact)
-      )
-    end
-    base.alias_method_chain :has_many, :forward_compatibility
+        define_method("#{assoc}_with_forward_compatibility") do |name, *args, &extension|
 
-    def base.has_and_belongs_to_many_with_forward_compatibility(name, scope = nil, options = {}, &extension)
-      base.has_many_without_forward_compatibility(
-        *([name, Doubleback.merge_activerecord_finder_options(scope, options), extension].flatten.compact)
-      )
-    end
-    base.alias_method_chain :has_and_belongs_to_many, :forward_compatibility
+          # Only has*many allow blocks
+          raise "#{assoc} does not allow an extension block" if(extension and not allows_extension)
 
+          scope, options =
+            if args.empty?
+              [ nil, { } ]
+            elsif args.size == 1
+              if args[0].respond_to?(:has_key?)
+                [ nil, args.shift ]
+              elsif args[0].is_a?(Proc)
+                [ args.shift, { } ]
+              end
+            else
+              [ args.shift, args.shift ]
+            end
+
+          raise "#{assoc}(name, scope = nil, options = {}#{allows_extension ? ', &extension': ''})" unless args.empty?
+
+          # Send the version-appropriate arguments to the actual version-specific association method
+          new_options = Doubleback.merge_activerecord_finder_options(scope, options)
+          if extension
+            send("#{assoc}_without_forward_compatibility".to_sym, name, new_options, &extension)
+          else
+            send("#{assoc}_without_forward_compatibility".to_sym, name, new_options)
+          end
+        end
+        alias_method_chain assoc, :forward_compatibility
+      end
+    end
   end
 
   def self.merge_activerecord_finder_options(scope = nil, options = {})
@@ -51,38 +71,15 @@ module Doubleback
 
     # Try calling the scope method if it exists, to record the existence of any
     # chained finder methods within the scope method
-    s = ScopeMock.new.call(scope) if scope
-    raise "Scope method which return a hash are not supported" if s and s.respond_to?(:has_key?)
+    s = ScopeMock.new.instance_eval(&scope) if scope
+    raise "Scope methods which return a hash are not supported" if s and s.respond_to?(:has_key?)
 
-    # Now merge the provided options with any finders detected by the scope mock object
-    extract =
-      if ::ActiveRecord::VERSION::MAJOR == 2
-        (MULTI_VALUE_FINDER_METHODS + SINGLE_VALUE_FINDER_METHODS)
-      else
-        AR3_REMOVE_FROM_SCOPE
-      end
-
-    scope_options = extract.inject({}) do |o, f|
-      o[self.option_hash_name(f)] = s.send(f) if(s and s.send(f))
+    scope_options = (MULTI_VALUE_FINDER_METHODS + SINGLE_VALUE_FINDER_METHODS).inject({}) do |o, f|
+      o[self.option_hash_name(f)] = s.send(f) if(s and s.send(f).present?)
       o
     end
 
-    new_scope = 
-      if ::ActiveRecord::VERSION::MAJOR == 2 or s.nil?
-        nil
-      else
-        (MULTI_VALUE_FINDER_METHODS + SINGLE_VALUE_FINDER_METHODS).inject(nil) do |p, f|
-          if AR3_REMOVE_FROM_SCOPE.include?(f) or s.send(f).empty?
-            p
-          elsif p.nil?
-            proc { send(f, s.send(f)) }
-          else
-            proc { p.call.send(f, s.send(f)) }
-          end
-        end
-      end
-
-    [ new_scope, options.merge(scope_options) ]
+    options.merge(scope_options)
 
   end
 
@@ -98,37 +95,36 @@ module Doubleback
 
   class ScopeMock
 
-    SINGLE_VALUE_FINDER_METHODS.each do |f|
-      define_method f do |v|
-        instance_variable = "@{#f}"
+    SINGLE_VALUE_FINDER_METHODS.each do |field|
+      f = "@#{field}"
+      define_method field do |*args|
+        v = args.shift if args.size > 0
         if v
-          if self.instance_variable_get(instance_variable)
+          if self.instance_variable_get(f)
             raise "Can't call #{f} more than once!"
           else
-            self.instance_variable_set(instance_variable, v)
+            self.instance_variable_set(f, v)
+            self
           end
         else
-          self.instance_variable_get(instance_variable)
+          self.instance_variable_get(f)
         end
       end
     end
 
-    MULTI_VALUE_FINDER_METHODS.each do |f|
-      define_method f do |v|
-        instance_variable = "@{#f}"
-        current_value = self.instance_variable_get(instance_variable)
+    MULTI_VALUE_FINDER_METHODS.each do |field|
+      f = "@#{field}"
+      define_method field do |*args|
+        v = args.shift if args.size > 0
+        current_value = self.instance_variable_get(f) || [ ]
         if v
           current_value << v
-          self.instance_variable_set(instance_variable, current_value.flatten)
+          self.instance_variable_set(f, current_value.flatten)
+          self
         else
           current_value
         end
       end
-    end
-
-    def initialize
-      SINGLE_VALUE_FINDER_METHODS.each { |f| self.send(f, nil) }
-      MULTI_VALUE_FINDER_METHODS.each { |f| self.send(f, [ ] ) }
     end
 
   end

@@ -1,10 +1,9 @@
 # Move forward, don't stay in the past
 
-Doubleback allows you to write ActiveRecord 4.x-style relation
-statements in your models regardless of whether you are using
-them in ActiveRecord 2.x, 3.x, or 4.x. This flexibility lets you
-reuse model files across different versions of Rails - perfect
-for long-running, incremental upgrade projects.
+Doubleback allows you to write ActiveRecord 4.x-style association statements
+in your models regardless of whether you are using them in ActiveRecord 2.x,
+3.x, or 4.x. This flexibility lets you reuse model files across different
+versions of Rails - perfect for long-running, incremental upgrade projects.
 
 # How to use
 
@@ -22,7 +21,11 @@ In your code
       ...
 
       # Works with ActiveRecord 2.x and 3.x!
-      has_many :users, -> { includes(:avatar).where(:deleted => false) }, :dependent => :destroy
+      has_many :users, -> { includes(:avatar).where(deleted: false) }, dependent: :destroy
+
+Under ActiveRecord 2.x and 3.x, this ```has_many``` class method call becomes
+
+      has_many :users, :include => [ :avatar ], :conditions => { :deleted => false }, :dependent => :destroy
 
 That's it.
 

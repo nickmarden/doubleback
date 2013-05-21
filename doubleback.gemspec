@@ -9,10 +9,10 @@ Gem::Specification.new do |s|
   s.date = "2013-05-21"
   s.description = "Write your ActiveRecord associations in AR 4 syntax, but use them in AR 2 and AR 3"
   s.email = "nick@marden.org"
-  s.extra_rdoc_files = ["README.rdoc", "lib/doubleback.rb"]
-  s.files = ["Gemfile", "README.rdoc", "lib/doubleback.rb", "Manifest", "doubleback.gemspec", "Rakefile"]
+  s.extra_rdoc_files = ["README.md", "lib/doubleback.rb"]
+  s.files = ["Gemfile", "README.md", "lib/doubleback.rb", "Manifest", "doubleback.gemspec", "Rakefile"]
   s.homepage = "http://github.com/nickmarden/doubleback"
-  s.rdoc_options = ["--line-numbers", "--inline-source", "--title", "Doubleback", "--main", "README.rdoc"]
+  s.rdoc_options = ["--line-numbers", "--inline-source", "--title", "Doubleback", "--main", "README.md"]
   s.require_paths = ["lib"]
   s.rubyforge_project = "doubleback"
   s.rubygems_version = "1.8.24"
@@ -22,7 +22,9 @@ Gem::Specification.new do |s|
     s.specification_version = 3
 
     if Gem::Version.new(Gem::VERSION) >= Gem::Version.new('1.2.0') then
+      s.add_runtime_dependency(%q<activerecord>, [">= 2.0.0"])
     else
+      s.add_dependency(%q<activerecord>, [">= 2.0.0"])
     end
   else
   end
