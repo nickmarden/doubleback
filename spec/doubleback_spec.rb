@@ -12,11 +12,10 @@ describe Doubleback do
     describe '.has_many' do
 
       it 'maps a vanilla has_many call without changes' do
-        class DBAR2VanillaHasMany < @target_class; end
-        DBAR2VanillaHasMany.should_receive(:has_many_without_forward_compatibility).with(:tentacles).and_return(true)
+        class DBAR2VanillaHasMany < @target_class; include Doubleback; end
+        DBAR2VanillaHasMany.should_receive(:has_many_without_forward_compatibility).with(:tentacles, {}).and_return(true)
         eval <<-EOF
           class DBAR2VanillaHasMany < #{@target_class}
-            include Doubleback
             has_many :tentacles
           end
         EOF
